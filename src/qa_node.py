@@ -13,8 +13,8 @@ def cosine_similarity(vec1, vec2):
     """
     Compute cosine similarity between two vectors.
     """
-    vec1 = np.array(vec1)
-    vec2 = np.array(vec2)
+    vec1 = np.array(vec1).flatten()
+    vec2 = np.array(vec2).flatten()
     if np.linalg.norm(vec1) == 0 or np.linalg.norm(vec2) == 0:
         return 0
     return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
@@ -54,7 +54,7 @@ def retrieve_relevant_documents(query_embedding, index: List[Dict], top_k: int =
     for doc in index:
         embedding_data = doc["embedding"]
         if isinstance(embedding_data[0], list):
-            sims = [cosine_similarity(query_embedding, vec) for vec in embedding_data]
+            sims = [cosine_similarity(query_embedding, np.expand_dims(vec, axis=0)) for vec in embedding_data]
             sim = max(sims)
         else:
             sim = cosine_similarity(query_embedding, embedding_data)
@@ -96,13 +96,10 @@ class QAClass:
         self.engine = engine
         from embedding_model import EmbeddingModel
         self.embedding_model = EmbeddingModel(model_path=embedding_model_path)
-        from llm_model import LocalLLMNode
+        from llm_model import LLMModel
         # Instantiate local LLM instance.
-        self.llm = LocalLLMNode(llm_model_path)
+        self.llm = LLMModel(llm_model_path)
         # Initialize conversation context.
-        self.conversation = [
-            {"role": "system", "content": "You are a helpful assistant for answering questions based on the provided embedded documents."}
-        ]
 
     def answer(self, query: str) -> str:
         # Load the index from the SQLite DB.
@@ -124,11 +121,21 @@ class QAClass:
         )
         # Define a max prompt tokens limit (adjust based on model capabilities).
         MAX_PROMPT_TOKENS = 2048
+        
         prompt_chunks = chunk_text(prompt, tokenizer, MAX_PROMPT_TOKENS)
+        prompt_chunks = prompt
         responses = []
         for chunk in prompt_chunks:
-            responses.append(self.llm.chat(self.conversation, chunk))
-        response = " ".join(responses)
+            responses.append(self.llm.chat(prompt_chunks))
+        flattened_responses = []
+        for r in responses:
+            if isinstance(r, list):
+                flattened_responses.append(" ".join(r))
+            elif isinstance(r, str):
+                flattened_responses.append(r)
+            else:
+                continue
+        response = " ".join(flattened_responses)
         # Append the current turn to the conversation.
         self.conversation.append({"role": "user", "content": prompt})
         self.conversation.append({"role": "assistant", "content": response})
