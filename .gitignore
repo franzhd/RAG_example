@@ -1,0 +1,9 @@
+# Ignore all generated files in the data folder
+/data/*
+/data/uploaded/*
+!/data/uploaded/.gitkeep
+/data/processed/*
+# Ignore all generated files in the models folder
+/models/*
+data/links/*
+!/data/links/.gitkeep

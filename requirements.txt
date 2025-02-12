@@ -1,0 +1,7 @@
+langgraph
+transformers
+vllm
+requests
+beautifulsoup4
+flask
+numpy
