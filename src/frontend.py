@@ -63,9 +63,12 @@ def ensure_chat_history_table():
 
 @app.route("/", methods=["GET"])
 def index():
+    if not os.path.exists(LINKS_FILE):
+        with open(LINKS_FILE, "w", encoding="utf-8") as f:
+            f.write("")
     with open(LINKS_FILE, "r", encoding="utf-8") as f:
         links_content = f.read()
-    # Updated HTML with navigation links to swap interfaces.
+    # Updated HTML with navigation links to swap interfaces. 
     html = """
     <!DOCTYPE html>
     <html>
@@ -286,25 +289,23 @@ def status():
     """
     return render_template_string(html, indexed=indexed, tree=tree)
 
-@app.route("/chat", methods=["GET", "POST"])
-def chat():
+# New API endpoint for interactive chat
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    from flask import jsonify
     ensure_chat_history_table()
-    if request.method == "POST":
-        query = request.form.get("query", "")
-        if not query:
-            flash("Please enter a query.")
-            return redirect(url_for("chat"))
-        
-        # Use run_qa to generate an answer.
-        answer = run_qa(query, INDEX_OUTPUT_FILE, EMBEDDING_MODEL_PATH, LLM_MODEL_PATH)
-        # Record chat history
-        from embedding_model import EmbeddingModel
-        emb_model = EmbeddingModel(model_path=EMBEDDING_MODEL_PATH)
-        user_embed = emb_model.embed_text(query)
-        bot_embed = emb_model.embed_text(answer)
-        conn = sqlite3.connect(INDEX_OUTPUT_FILE)
-        cursor = conn.cursor()
-        cursor.execute("""
+    data = request.get_json()
+    query = data.get("query")
+    if not query:
+        return jsonify({"error": "Empty query"}), 400
+    answer = run_qa(query, INDEX_OUTPUT_FILE, EMBEDDING_MODEL_PATH, LLM_MODEL_PATH)
+    from embedding_model import EmbeddingModel
+    emb_model = EmbeddingModel(model_path=EMBEDDING_MODEL_PATH)
+    user_embed = emb_model.embed_text(query)
+    bot_embed = emb_model.embed_text(answer)
+    conn = sqlite3.connect(INDEX_OUTPUT_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
             INSERT INTO chat_history (session_id, user_message, bot_answer, user_embedding, bot_embedding)
             VALUES (?, ?, ?, ?, ?)
         """, (
@@ -314,80 +315,131 @@ def chat():
             json.dumps(user_embed),
             json.dumps(bot_embed)
         ))
-        conn.commit()
-        conn.close()
-        return render_template_string("""
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-            <title>Chatbot Response</title>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
-          </head>
-          <body>
-            <nav>
-              <div class="nav-wrapper teal">
-                <ul id="nav-mobile" class="left">
-                  <li><a href="/">Indexer</a></li>
-                </ul>
-                <ul id="nav-mobile" class="right">
-                  <li><a href="/chat">Chatbot</a></li>
-                </ul>
-                <div class="center"><span class="brand-logo">Chatbot Interface</span></div>
-              </div>
-            </nav>
-            <div class="container" style="margin-top:50px;">
-              <h5>Chatbot Query:</h5>
-              <p><strong>Question:</strong> {{ query }}</p>
-              <h5>Answer:</h5>
-              <p>{{ answer }}</p>
-              <a href="/chat" class="btn waves-effect waves-light">Back</a>
+    conn.commit()
+    conn.close()
+    return jsonify({"query": query, "answer": answer})
+
+# Modified /chat route with improved styling and appearance for the chat interface.
+@app.route("/chat", methods=["GET"])
+def chat():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+        <title>Interactive Chatbot</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+        <style>
+          /* Improved chat window styling */
+          #chat-window {
+              height: 500px; 
+              overflow-y: auto; 
+              border: 2px solid #9E9E9E;
+              border-radius: 8px;
+              padding: 15px;
+              background: #FAFAFA;
+              margin-bottom: 20px;
+              display: flex;
+              flex-direction: column;
+          }
+          .chat-message { 
+              margin: 10px 0; 
+              padding: 10px;
+              border-radius: 4px;
+              max-width: 80%;
+          }
+          .user { 
+              background-color: #C8E6C9; 
+              align-self: flex-end;
+              margin-left: auto;
+          }
+          .bot { 
+              background-color: #BBDEFB; 
+              align-self: flex-start;
+              margin-right: auto;
+          }
+          /* Improved text input styling */
+          #chat-input {
+              min-height: 60px;
+              padding: 10px;
+              border: 2px solid #9E9E9E;
+              border-radius: 4px;
+              resize: vertical;
+          }
+        </style>
+      </head>
+      <body>
+        <nav>
+          <div class="nav-wrapper teal">
+            <ul id="nav-mobile" class="left">
+              <li><a href="/">Indexer</a></li>
+            </ul>
+            <ul id="nav-mobile" class="right">
+              <li><a href="/chat">Chatbot</a></li>
+            </ul>
+            <div class="center"><span class="brand-logo">Chatbot Interface</span></div>
+          </div>
+        </nav>
+        <div class="container" style="margin-top:20px;">
+          <div id="chat-window"></div>
+          <div class="row">
+            <div class="input-field col s12">
+              <textarea id="chat-input" class="materialize-textarea" placeholder="Type your message here..."></textarea>
+              <label for="chat-input">Your Message</label>
             </div>
-          </body>
-        </html>
-        """, query=query, answer=answer)
-    else:
-        return render_template_string("""
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-            <title>Chat with Chatbot</title>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
-          </head>
-          <body>
-            <nav>
-              <div class="nav-wrapper teal">
-                <ul id="nav-mobile" class="left">
-                  <li><a href="/">Indexer</a></li>
-                </ul>
-                <ul id="nav-mobile" class="right">
-                  <li><a href="/chat">Chatbot</a></li>
-                </ul>
-                <div class="center"><span class="brand-logo">Chatbot Interface</span></div>
-              </div>
-            </nav>
-            <div class="container" style="margin-top:50px;">
-              <h5>Chat with Chatbot</h5>
-              <form method="post">
-                <div class="input-field">
-                  <textarea name="query" class="materialize-textarea" placeholder="Type your question here..."></textarea>
-                  <label for="query">Your Question</label>
-                </div>
-                <button type="submit" class="btn waves-effect waves-light">Submit</button>
-              </form>
-            </div>
-            <!-- JS to clear history on unload -->
-            <script>
-              window.addEventListener("beforeunload", function(){
-                  navigator.sendBeacon("/delete-chat-history");
-              });
-            </script>
-          </body>
-        </html>
-        """)
+          </div>
+          <div class="row">
+            <button id="send-btn" class="btn waves-effect waves-light col s12">Send</button>
+          </div>
+        </div>
+        <script>
+          const sendBtn = document.getElementById("send-btn");
+          const chatInput = document.getElementById("chat-input");
+          const chatWindow = document.getElementById("chat-window");
+
+          function appendMessage(role, message) {
+              const div = document.createElement("div");
+              div.className = "chat-message " + role;
+              div.textContent = (role === "user" ? "You: " : "AI: ") + message;
+              chatWindow.appendChild(div);
+              chatWindow.scrollTop = chatWindow.scrollHeight;
+          }
+
+          async function sendMessage() {
+              const query = chatInput.value.trim();
+              if (!query) return;
+              appendMessage("user", query);
+              chatInput.value = "";
+              try {
+                  const response = await fetch("/api/chat", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ query })
+                  });
+                  const data = await response.json();
+                  if (data.answer) {
+                      appendMessage("bot", data.answer);
+                  } else {
+                      appendMessage("bot", "Error: " + (data.error || "Unknown error"));
+                  }
+              } catch (err) {
+                  appendMessage("bot", "Error sending message.");
+              }
+          }
+
+          sendBtn.addEventListener("click", sendMessage);
+          // Allow Enter to send message (Shift+Enter for newline)
+          chatInput.addEventListener("keydown", function(event) {
+              if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  sendMessage();
+              }
+          });
+        </script>
+      </body>
+    </html>
+    """)
 
 @app.route("/delete-chat-history", methods=["POST", "GET"])
 def delete_chat_history():

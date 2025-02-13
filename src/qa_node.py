@@ -45,7 +45,7 @@ def load_index_sqlite(db_file: str) -> List[Dict]:
     conn.close()
     return index
 
-def retrieve_relevant_documents(query_embedding, index: List[Dict], top_k: int = 3, min_similarity: float = 0.3) -> List[Dict]:
+def retrieve_relevant_documents(query_embedding, index: List[Dict], top_k: int = 2, min_similarity: float = 0.6) -> List[Dict]:
     """
     Compute cosine similarity for each document, discard those below min_similarity,
     and return the top_k matches.
@@ -114,19 +114,20 @@ class QAClass:
         ])
         # Obtain tokenizer from the embedding node and summarize context if too long.
         tokenizer = self.embedding_model.model.engine.get_tokenizer()
-        context = summarize_context(context, self, tokenizer, max_tokens=3000)
+        context = summarize_context(context, self, tokenizer, max_tokens=8000)
         prompt = (
             f"Using the following summarized context, answer the question:\n\n"
             f"Summary:\n{context}\n\nQuestion: {query}\nAnswer:"
         )
         # Define a max prompt tokens limit (adjust based on model capabilities).
-        MAX_PROMPT_TOKENS = 2048
+        MAX_PROMPT_TOKENS = 8000
         
         prompt_chunks = chunk_text(prompt, tokenizer, MAX_PROMPT_TOKENS)
-        prompt_chunks = prompt
+        #prompt_chunks = prompt
         responses = []
         for chunk in prompt_chunks:
-            responses.append(self.llm.chat(prompt_chunks))
+            # Pass chunk instead of the full list
+            responses.append(self.llm.chat(chunk))
         flattened_responses = []
         for r in responses:
             if isinstance(r, list):
@@ -136,21 +137,29 @@ class QAClass:
             else:
                 continue
         response = " ".join(flattened_responses)
-        # Append the current turn to the conversation.
-        self.conversation.append({"role": "user", "content": prompt})
-        self.conversation.append({"role": "assistant", "content": response})
         return response
+
+# New interactive chat function
+def interactive_chat(index_file: str, embedding_model_path: str, llm_model_path: str, engine: str = "vllm"):
+    print("Interactive Chat (type 'exit' to quit)")
+    qa = QAClass(index_file, embedding_model_path, llm_model_path, engine)
+    while True:
+        query = input("You: ")
+        if query.lower().strip() == "exit":
+            print("Exiting chat.")
+            break
+        answer = qa.answer(query)
+        print("AI:", answer)
 
 # Modify run_qa to use QAClass.
 def run_qa(query: str, index_file: str, embedding_model_path: str, llm_model_path: str, engine: str = "vllm"):
     qa = QAClass(index_file, embedding_model_path, llm_model_path, engine)
     return qa.answer(query)
 
+# # Modify main block to use interactive chat.
 # if __name__ == "__main__":
 #     # Example usage:
-#     index_file = "../data/index.json"               # Index file created by the embedding node
-#     embedding_model_path = "../models/embedding_model"  # Local embedding model path
-#     llm_model_path = "../models/llm_model"            # Local LLM model path (adjust as needed)
-#     query = "How do embeddings help improve context understanding in language models?"
-#     answer = run_qa(query, index_file, embedding_model_path, llm_model_path, engine="vllm")
-#     print("Answer:", answer)
+#     index_file = "../data/index.json"               # Adjust if needed.
+#     embedding_model_path = "../models/embedding_model"  # Adjust if needed.
+#     llm_model_path = "../models/llm_model"            # Adjust if needed.
+#     interactive_chat(index_file, embedding_model_path, llm_model_path, engine="vllm")
